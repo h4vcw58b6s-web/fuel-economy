@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FuelTracker Pro - Multi-Vehicle Fuel Manager</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React & ReactDOM (Development) -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  
+  <!-- Babel Standalone for JSX transformation -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <style>
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fadeIn {
+      animation: fadeIn 0.25s ease-out forwards;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans selection:bg-cyan-500 selection:text-white">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // Helper Component to render Lucide Icons using the global `lucide` object
+    const Icon = ({ name, className = "w-4 h-4", ...props }) => {
+      const ref = React.useRef(null);
+
+      useEffect(() => {
+        if (ref.current) {
+          ref.current.innerHTML = '';
+          const iconElement = lucide.createElement(lucide.icons[name]);
+          if (iconElement) {
+            if (className) {
+              const existingClass = iconElement.getAttribute('class') || '';
+              iconElement.setAttribute('class', `${existingClass} ${className}`.trim());
+            }
+            ref.current.appendChild(iconElement);
+          }
+        }
+      }, [name, className]);
+
+      return <span ref={ref} className="inline-flex items-center justify-center shrink-0" {...props} />;
+    };
+
+    function App() {
+      const [vehicles, setVehicles] = useState(() => {
+        const saved = localStorage.getItem('fuel_tracker_vehicles');
+        return saved ? JSON.parse(saved) : [
+          { id: 'v1', name: '2022 Honda Civic', initialOdometer: 15000 },
+          { id: 'v2', name: '2018 Ford F-150', initialOdometer: 45000 }
+        ];
+      });
+
+      const [activeVehicleId, setActiveVehicleId] = useState(() => {
+        const savedVehicles = localStorage.getItem('fuel_tracker_vehicles');
+        const parsed = savedVehicles ? JSON.parse(savedVehicles) : [
+          { id: 'v1', name: '2022 Honda Civic', initialOdometer: 15000 }
+        ];
+        return parsed[0]?.id || 'v1';
+      });
+
+      const [fillUps, setFillUps] = useState(() => {
+        const saved = localStorage.getItem('fuel_tracker_fillups');
+        return saved ? JSON.parse(saved) : [
+          { id: 'f1', vehicleId: 'v1', date: '2026-03-01', inputType: 'odometer', odometer: 15350, milesDriven: 350, gallons: 11.5, cost: 42.50 },
+          { id: 'f2', vehicleId: 'v1', date: '2026-03-15', inputType: 'odometer', odometer: 15680, milesDriven: 330, gallons: 10.8, cost: 39.90 },
+          { id: 'f3', vehicleId: 'v2', date: '2026-03-10', inputType: 'miles', odometer: null, milesDriven: 400, gallons: 22.0, cost: 85.00 }
+        ];
+      });
+
+      const [activeTab, setActiveTab] = useState('log');
+
+      useEffect(() => {
+        localStorage.setItem('fuel_tracker_vehicles', JSON.stringify(vehicles));
+      }, [vehicles]);
+
+      useEffect(() => {
+        localStorage.setItem('fuel_tracker_fillups', JSON.stringify(fillUps));
+      }, [fillUps]);
+
+      useEffect(() => {
+        if (vehicles.length > 0 && !vehicles.find(v => v.id === activeVehicleId)) {
+          setActiveVehicleId(vehicles[0].id);
+        }
+      }, [vehicles, activeVehicleId]);
+
+      const activeVehicle = vehicles.find(v => v.id === activeVehicleId) || vehicles[0];
+
+      const currentYear = new Date().getFullYear().toString();
+      const activeVehicleFillUps = fillUps
+        .filter(f => f.vehicleId === activeVehicleId)
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      const ytdFillUps = activeVehicleFillUps.filter(f => f.date.startsWith(currentYear));
+      const ytdSpent = ytdFillUps.reduce((acc, curr) => acc + Number(curr.cost), 0);
+      const ytdMiles = ytdFillUps.reduce((acc, curr) => acc + Number(curr.milesDriven), 0);
+
+      const totalLifetimeMiles = activeVehicleFillUps.reduce((acc, curr) => acc + Number(curr.milesDriven), 0);
+      const totalLifetimeGallons = activeVehicleFillUps.reduce((acc, curr) => acc + Number(curr.gallons), 0);
+      const lifetimeMpg = totalLifetimeGallons > 0 ? (totalLifetimeMiles / totalLifetimeGallons).toFixed(1) : '0.0';
+
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-white">
+          <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-30 shadow-lg">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-auto sm:h-20 flex flex-col sm:flex-row items-center justify-between gap-4 py-3 sm:py-0">
+              <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-start">
+                <div className="flex items-center gap-2">
+                  <div className="p-2.5 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl shadow-md shadow-cyan-500/20 text-white">
+                    <Icon name="Fuel" className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h1 className="text-lg font-bold tracking-tight bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">
+                      FuelTracker Pro
+                    </h1>
+                    <p className="text-xs text-slate-400">Multi-Vehicle Fuel Manager</p>
+                  </div>
+                </div>
+
+                <div className="relative inline-block text-left sm:ml-4">
+                  <div className="flex items-center bg-slate-800/90 border border-slate-700/80 rounded-xl px-3 py-1.5 shadow-inner">
+                    <Icon name="Car" className="w-4 h-4 text-cyan-400 mr-2 shrink-0" />
+                    <select
+                      value={activeVehicleId}
+                      onChange={(e) => setActiveVehicleId(e.target.value)}
+                      className="bg-transparent text-sm font-semibold text-slate-200 focus:outline-none cursor-pointer pr-4 appearance-none"
+                    >
+                      {vehicles.map(v => (
+                        <option key={v.id} value={v.id} className="bg-slate-900 text-slate-200">
+                          {v.name}
+                        </option>
+                      ))}
+                      {vehicles.length === 0 && (
+                        <option value="" disabled>No vehicles added</option>
+                      )}
+                    </select>
+                    <Icon name="ChevronDown" className="w-4 h-4 text-slate-400 pointer-events-none -ml-3" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto justify-end">
+                <div className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/50 px-3 py-1.5 rounded-xl">
+                  <Icon name="Gauge" className="w-4 h-4 text-cyan-400" />
+                  <div className="text-left">
+                    <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Lifetime MPG</p>
+                    <p className="text-xs font-bold text-cyan-400">{lifetimeMpg} MPG</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/50 px-3 py-1.5 rounded-xl">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+                  <div className="text-left">
+                    <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">YTD Spent</p>
+                    <p className="text-xs font-bold text-emerald-400">${ytdSpent.toFixed(2)}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/50 px-3 py-1.5 rounded-xl">
+                  <div className="w-2 h-2 rounded-full bg-cyan-400"></div>
+                  <div className="text-left">
+                    <p className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">YTD Miles</p>
+                    <p className="text-xs font-bold text-cyan-400">{ytdMiles.toLocaleString()} mi</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/50 border-t border-slate-800/60 px-4 sm:px-6 lg:px-8">
+              <div className="max-w-7xl mx-auto flex space-x-1">
+                <button
+                  onClick={() => setActiveTab('log')}
+                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === 'log'
+                      ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5'
+                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                  }`}
+                >
+                  <Icon name="Fuel" className="w-4 h-4" />
+                  Log Fill-up
+                </button>
+                <button
+                  onClick={() => setActiveTab('stats')}
+                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === 'stats'
+                      ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5'
+                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                  }`}
+                >
+                  <Icon name="BarChart3" className="w-4 h-4" />
+                  Stats
+                </button>
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === 'settings'
+                      ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5'
+                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                  }`}
+                >
+                  <Icon name="Settings" className="w-4 h-4" />
+                  Settings
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+            {vehicles.length === 0 ? (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center max-w-xl mx-auto my-12">
+                <Icon name="Car" className="w-16 h-16 text-cyan-500 mx-auto mb-4 opacity-80" />
+                <h2 className="text-xl font-bold mb-2">No Vehicles Available</h2>
+                <p className="text-slate-400 text-sm mb-6">Add a vehicle under Settings to start tracking fuel logs and mileage.</p>
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className="px-6 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:opacity-95 transition-all"
+                >
+                  Go to Settings
+                </button>
+              </div>
+            ) : (
+              <>
+                {activeTab === 'log' && (
+                  <LogFillUpView
+                    activeVehicle={activeVehicle}
+                    fillUps={activeVehicleFillUps}
+                    allFillUps={fillUps}
+                    setFillUps={setFillUps}
+                  />
+                )}
+                {activeTab === 'stats' && (
+                  <StatsView
+                    vehicles={vehicles}
+                    fillUps={fillUps}
+                  />
+                )}
+                {activeTab === 'settings' && (
+                  <SettingsView
+                    vehicles={vehicles}
+                    setVehicles={setVehicles}
+                    activeVehicleId={activeVehicleId}
+                    setActiveVehicleId={setActiveVehicleId}
+                  />
+                )}
+              </>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    function LogFillUpView({ activeVehicle, fillUps, allFillUps, setFillUps }) {
+      const [inputType, setInputType] = useState('odometer');
+      
+      const [date, setDate] = useState('');
+      const [odometer, setOdometer] = useState('');
+      const [milesDriven, setMilesDriven] = useState('');
+      const [gallons, setGallons] = useState('');
+      const [cost, setCost] = useState('');
+      const [error, setError] = useState('');
+      const [successMsg, setSuccessMsg] = useState('');
+
+      const [editingItem, setEditingItem] = useState(null);
+      const [editMilesDriven, setEditMilesDriven] = useState('');
+      const [editGallons, setEditGallons] = useState('');
+      const [editCost, setEditCost] = useState('');
+      const [editDate, setEditDate] = useState('');
+
+      const lastFillUp = fillUps.length > 0 ? fillUps[0] : null;
+      const baselineOdometer = lastFillUp && lastFillUp.odometer ? Number(lastFillUp.odometer) : Number(activeVehicle.initialOdometer);
+
+      const handleAddFillUp = (e) => {
+        e.preventDefault();
+        setError('');
+        setSuccessMsg('');
+
+        if (!date || !gallons || !cost || (!odometer && inputType === 'odometer') || (!milesDriven && inputType === 'miles')) {
+          setError('Please fill in all input fields.');
+          return;
+        }
+
+        let calculatedMiles = 0;
+        let finalOdometer = null;
+
+        if (inputType === 'odometer') {
+          finalOdometer = Number(odometer);
+          if (finalOdometer <= baselineOdometer) {
+            setError(`Odometer reading must be greater than previous (${baselineOdometer.toLocaleString()} mi).`);
+            return;
+          }
+          calculatedMiles = finalOdometer - baselineOdometer;
+        } else {
+          calculatedMiles = Number(milesDriven);
+          if (calculatedMiles <= 0) {
+            setError('Miles driven must be greater than zero.');
+            return;
+          }
+          finalOdometer = baselineOdometer + calculatedMiles;
+        }
+
+        const newEntry = {
+          id: 'fill_' + Date.now(),
+          vehicleId: activeVehicle.id,
+          date,
+          inputType,
+          odometer: finalOdometer,
+          milesDriven: calculatedMiles,
+          gallons: Number(gallons),
+          cost: Number(cost)
+        };
+
+        setFillUps([newEntry, ...allFillUps]);
+        
+        setOdometer('');
+        setMilesDriven('');
+        setGallons('');
+        setCost('');
+        setDate('');
+        setSuccessMsg('Fill-up logged successfully!');
+        setTimeout(() => setSuccessMsg(''), 3000);
+      };
+
+      const handleDelete = (id) => {
+        setFillUps(allFillUps.filter(f => f.id !== id));
+      };
+
+      const openEditModal = (item) => {
+        setEditingItem(item);
+        setEditMilesDriven(item.milesDriven.toString());
+        setEditGallons(item.gallons.toString());
+        setEditCost(item.cost.toString());
+        setEditDate(item.date);
+      };
+
+      const handleSaveEdit = (e) => {
+        e.preventDefault();
+        if (!editMilesDriven || !editGallons || !editCost || !editDate) {
+          setError('All fields are required when editing.');
+          return;
+        }
+
+        const updated = allFillUps.map(f => {
+          if (f.id === editingItem.id) {
+            return {
+              ...f,
+              date: editDate,
+              milesDriven: Number(editMilesDriven),
+              gallons: Number(editGallons),
+              cost: Number(editCost)
+            };
+          }
+          return f;
+        });
+
+        setFillUps(updated);
+        setEditingItem(null);
+        setSuccessMsg('Entry updated successfully!');
+        setTimeout(() => setSuccessMsg(''), 3000);
+      };
+
+      return (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fadeIn">
+          <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl h-fit">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <Icon name="Plus" className="w-5 h-5 text-cyan-400" />
+                Log Fuel Fill-Up
+              </h2>
+              <span className="text-xs px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-400 font-medium">
+                {activeVehicle.name}
+              </span>
+            </div>
+
+            {error && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs flex items-center gap-2">
+                <Icon name="AlertCircle" className="w-4 h-4 shrink-0" />
+                {error}
+              </div>
+            )}
+
+            {successMsg && (
+              <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs flex items-center gap-2">
+                <Icon name="CheckCircle2" className="w-4 h-4 shrink-0" />
+                {successMsg}
+              </div>
+            )}
+
+            <form onSubmit={handleAddFillUp} className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setInputType('odometer')}
+                  className={`py-2 text-xs font-semibold rounded-lg transition-all ${
+                    inputType === 'odometer'
+                      ? 'bg-cyan-500 text-white shadow-md shadow-cyan-500/20'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Odometer Reading
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInputType('miles')}
+                  className={`py-2 text-xs font-semibold rounded-lg transition-all ${
+                    inputType === 'miles'
+                      ? 'bg-cyan-500 text-white shadow-md shadow-cyan-500/20'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Miles Driven
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">Date</label>
+                <div className="relative">
+                  <Icon name="Calendar" className="w-4 h-4 text-slate-500 absolute left-3 top-3 pointer-events-none" />
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 pl-10 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 transition-colors"
+                    required
+                  />
+                </div>
+              </div>
+
+              {inputType === 'odometer' ? (
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-xs font-medium text-slate-400">Current Odometer (mi)</label>
+                    <span className="text-[10px] text-slate-500">Last: {baselineOdometer.toLocaleString()} mi</span>
+                  </div>
+                  <div className="relative">
+                    <Icon name="Gauge" className="w-4 h-4 text-slate-500 absolute left-3 top-3 pointer-events-none" />
+                    <input
+                      type="number"
+                      placeholder="e.g. 15450"
+                      value={odometer}
+                      onChange={(e) => setOdometer(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 pl-10 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 transition-colors"
+                      required
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Miles Driven Since Last Fill</label>
+                  <div className="relative">
+                    <Icon name="TrendingUp" className="w-4 h-4 text-slate-500 absolute left-3 top-3 pointer-events-none" />
+                    <input
+                      type="number"
+                      placeholder="e.g. 320"
+                      value={milesDriven}
+                      onChange={(e) => setMilesDriven(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 pl-10 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 transition-colors"
+                      required
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">Gallons Filled</label>
+                <div className="relative">
+                  <Icon name="Fuel" className="w-4 h-4 text-slate-500 absolute left-3 top-3 pointer-events-none" />
+                  <input
+                    type="number"
+                    step="0.001"
+                    placeholder="e.g. 11.25"
+                    value={gallons}
+                    onChange={(e) => setGallons(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 pl-10 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 transition-colors"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">Total Cost ($)</label>
+                <div className="relative">
+                  <Icon name="DollarSign" className="w-4 h-4 text-slate-500 absolute left-3 top-3 pointer-events-none" />
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="e.g. 45.50"
+                    value={cost}
+                    onChange={(e) => setCost(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 pl-10 text-sm text-slate-200 focus:outline-none focus:border-cyan-500 transition-colors"
+                    required
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full mt-2 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:opacity-95 transition-all text-sm"
+              >
+                Save Fill-Up
+              </button>
+            </form>
+          </div>
+
+          <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl flex flex-col">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <Icon name="Car" className="w-5 h-5 text-cyan-400" />
+                Fill-Up History ({activeVehicle.name})
+              </h2>
+              <span className="text-xs text-slate-400 font-medium">{fillUps.length} entries</span>
+            </div>
+
+            {fillUps.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-slate-500 border border-dashed border-slate-800 rounded-xl">
+                <Icon name="Fuel" className="w-12 h-12 mb-3 opacity-40 text-cyan-400" />
+                <p className="text-sm font-medium">No fill-ups recorded for this vehicle.</p>
+                <p className="text-xs text-slate-600 mt-1">Fill out the form on the left to add your first entry.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+                      <th className="py-3 px-4">Date</th>
+                      <th className="py-3 px-4">Odometer</th>
+                      <th className="py-3 px-4">Miles Driven</th>
+                      <th className="py-3 px-4">Gallons</th>
+                      <th className="py-3 px-4">Cost</th>
+                      <th className="py-3 px-4">MPG</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 text-sm">
+                    {fillUps.map((item) => {
+                      const mpg = item.gallons > 0 ? (item.milesDriven / item.gallons).toFixed(1) : '0.0';
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-800/40 transition-colors group">
+                          <td className="py-3.5 px-4 font-medium text-slate-300">{item.date}</td>
+                          <td className="py-3.5 px-4 text-slate-400">{item.odometer ? Number(item.odometer).toLocaleString() : 'N/A'}</td>
+                          <td className="py-3.5 px-4 text-cyan-400 font-semibold">+{item.milesDriven} mi</td>
+                          <td className="py-3.5 px-4 text-slate-300">{item.gallons} gal</td>
+                          <td className="py-3.5 px-4 text-emerald-400 font-semibold">${Number(item.cost).toFixed(2)}</td>
+                          <td className="py-3.5 px-4">
+                            <span className="px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-400 text-xs font-bold">
+                              {mpg} MPG
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => openEditModal(item)}
+                                className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-cyan-400 transition-colors"
+                                title="Edit"
+                              >
+                                <Icon name="Edit3" className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(item.id)}
+                                className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-red-400 transition-colors"
+                                title="Delete"
+                              >
+                                <Icon name="Trash2" className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {editingItem && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold flex items-center gap-2">
+                    <Icon name="Edit3" className="w-5 h-5 text-cyan-400" />
+                    Edit Fill-Up Entry
+                  </h3>
+                  <button
+                    onClick={() => setEditingItem(null)}
+                    className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200"
+                  >
+                    <Icon name="X" className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveEdit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Date</label>
+                    <input
+                      type="date"
+                      value={editDate}
+                      onChange={(e) => setEditDate(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Miles Driven</label>
+                    <input
+                      type="number"
+                      value={editMilesDriven}
+                      onChange={(e) => setEditMilesDriven(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Gallons</label>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={editGallons}
+                      onChange={(e) => setEditGallons(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1">Total Cost ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editCost}
+                      onChange={(e) => setEditCost(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500"
+                      required
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingItem(null)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-sm transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl text-sm shadow-lg shadow-cyan-500/20 hover:opacity-95 transition-all"
+                    >
+                      Save Changes
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function StatsView({ vehicles, fillUps }) {
+      const currentYear = new Date().getFullYear().toString();
+      const ytdFillUps = fillUps.filter(f => f.date.startsWith(currentYear));
+
+      const totalSpent = ytdFillUps.reduce((acc, curr) => acc + Number(curr.cost), 0);
+      const totalMiles = ytdFillUps.reduce((acc, curr) => acc + Number(curr.milesDriven), 0);
+      const totalGallons = ytdFillUps.reduce((acc, curr) => acc + Number(curr.gallons), 0);
+
+      const avgCostPerGallon = totalGallons > 0 ? totalSpent / totalGallons : 0;
+      const avgCostPerMile = totalMiles > 0 ? totalSpent / totalMiles : 0;
+      const overallMpg = totalGallons > 0 ? totalMiles / totalGallons : 0;
+
+      return (
+        <div className="space-y-8 animate-fadeIn">
+          <div>
+            <h2 className="text-xl font-bold flex items-center gap-2 mb-1">
+              <Icon name="BarChart3" className="w-6 h-6 text-cyan-400" />
+              YTD Analytics ({currentYear})
+            </h2>
+            <p className="text-sm text-slate-400">Detailed metric breakdown across all fleet vehicles.</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase font-semibold text-slate-400 tracking-wider">YTD Money Spent</p>
+                <p className="text-2xl font-black text-emerald-400 mt-1">${totalSpent.toFixed(2)}</p>
+              </div>
+              <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
+                <Icon name="DollarSign" className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase font-semibold text-slate-400 tracking-wider">YTD Miles Driven</p>
+                <p className="text-2xl font-black text-cyan-400 mt-1">{totalMiles.toLocaleString()} mi</p>
+              </div>
+              <div className="p-3 bg-cyan-500/10 rounded-xl text-cyan-400">
+                <Icon name="TrendingUp" className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase font-semibold text-slate-400 tracking-wider">YTD Gallons Consumed</p>
+                <p className="text-2xl font-black text-blue-400 mt-1">{totalGallons.toFixed(1)} gal</p>
+              </div>
+              <div className="p-3 bg-blue-500/10 rounded-xl text-blue-400">
+                <Icon name="Fuel" className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase font-semibold text-slate-400 tracking-wider">Avg Cost / Gallon</p>
+                <p className="text-2xl font-black text-amber-400 mt-1">${avgCostPerGallon.toFixed(2)}</p>
+              </div>
+              <div className="p-3 bg-amber-500/10 rounded-xl text-amber-400">
+                <Icon name="DollarSign" className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase font-semibold text-slate-400 tracking-wider">Avg Cost / Mile</p>
+                <p className="text-2xl font-black text-indigo-400 mt-1">${avgCostPerMile.toFixed(3)}</p>
+              </div>
+              <div className="p-3 bg-indigo-500/10 rounded-xl text-indigo-400">
+                <Icon name="Sliders" className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase font-semibold text-slate-400 tracking-wider">Overall Fuel Economy</p>
+                <p className="text-2xl font-black text-teal-400 mt-1">{overallMpg.toFixed(1)} MPG</p>
+              </div>
+              <div className="p-3 bg-teal-500/10 rounded-xl text-teal-400">
+                <Icon name="Gauge" className="w-6 h-6" />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+              <Icon name="Car" className="w-5 h-5 text-cyan-400" />
+              Per-Vehicle Summary
+            </h3>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+                    <th className="py-3 px-4">Vehicle Name</th>
+                    <th className="py-3 px-4">Fill-Ups</th>
+                    <th className="py-3 px-4">Total Miles</th>
+                    <th className="py-3 px-4">Total Spent</th>
+                    <th className="py-3 px-4">Average MPG</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-sm">
+                  {vehicles.map(v => {
+                    const vFills = fillUps.filter(f => f.vehicleId === v.id);
+                    const vMiles = vFills.reduce((acc, curr) => acc + Number(curr.milesDriven), 0);
+                    const vSpent = vFills.reduce((acc, curr) => acc + Number(curr.cost), 0);
+                    const vGallons = vFills.reduce((acc, curr) => acc + Number(curr.gallons), 0);
+                    const vMpg = vGallons > 0 ? vMiles / vGallons : 0;
+
+                    return (
+                      <tr key={v.id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="py-3.5 px-4 font-bold text-slate-200">{v.name}</td>
+                        <td className="py-3.5 px-4 text-slate-400">{vFills.length}</td>
+                        <td className="py-3.5 px-4 text-cyan-400 font-medium">{vMiles.toLocaleString()} mi</td>
+                        <td className="py-3.5 px-4 text-emerald-400 font-medium">${vSpent.toFixed(2)}</td>
+                        <td className="py-3.5 px-4">
+                          <span className="px-2 py-0.5 rounded-md bg-cyan-500/10 text-cyan-400 text-xs font-bold">
+                            {vMpg.toFixed(1)} MPG
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function SettingsView({ vehicles, setVehicles, activeVehicleId, setActiveVehicleId }) {
+      const [name, setName] = useState('');
+      const [initialOdometer, setInitialOdometer] = useState('');
+      const [editingId, setEditingId] = useState(null);
+      const [error, setError] = useState('');
+
+      const handleAddOrUpdate = (e) => {
+        e.preventDefault();
+        setError('');
+
+        if (!name || initialOdometer === '') {
+          setError('Please enter both the Vehicle Name and Initial Odometer.');
+          return;
+        }
+
+        if (editingId) {
+          setVehicles(vehicles.map(v => v.id === editingId ? { ...v, name, initialOdometer: Number(initialOdometer) } : v));
+          setEditingId(null);
+        } else {
+          const newVehicle = {
+            id: 'v_' + Date.now(),
+            name,
+            initialOdometer: Number(initialOdometer)
+          };
+          setVehicles([...vehicles, newVehicle]);
+          if (vehicles.length === 0) {
+            setActiveVehicleId(newVehicle.id);
+          }
+        }
+
+        setName('');
+        setInitialOdometer('');
+      };
+
+      const startEdit = (v) => {
+        setEditingId(v.id);
+        setName(v.name);
+        setInitialOdometer(v.initialOdometer);
+      };
+
+      const handleDelete = (id) => {
+        if (vehicles.length <= 1) {
+          setError('At least one vehicle must remain in your fleet.');
+          return;
+        }
+        setVehicles(vehicles.filter(v => v.id !== id));
+        if (activeVehicleId === id) {
+          const remaining = vehicles.filter(v => v.id !== id);
+          setActiveVehicleId(remaining[0].id);
+        }
+      };
+
+      return (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-fadeIn">
+          <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl h-fit">
+            <h2 className="text-lg font-bold flex items-center gap-2 mb-4">
+              <Icon name="Car" className="w-5 h-5 text-cyan-400" />
+              {editingId ? 'Update Vehicle' : 'Add Vehicle'}
+            </h2>
+
+            {error && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs flex items-center gap-2">
+                <Icon name="AlertCircle" className="w-4 h-4 shrink-0" />
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleAddOrUpdate} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">Vehicle Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 2023 Toyota Camry"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">Initial Odometer (mi)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 12000"
+                  value={initialOdometer}
+                  onChange={(e) => setInitialOdometer(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:border-cyan-500"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                {editingId && (
+                  <button
+                    type="button"
+                    onClick={() => { setEditingId(null); setName(''); setInitialOdometer(''); }}
+                    className="w-1/2 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-sm transition-colors"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className={`${editingId ? 'w-1/2' : 'w-full'} py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/20 hover:opacity-95 transition-all text-sm`}
+                >
+                  {editingId ? 'Update Vehicle' : 'Add Vehicle'}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+            <h2 className="text-lg font-bold flex items-center gap-2 mb-6">
+              <Icon name="Settings" className="w-5 h-5 text-cyan-400" />
+              Vehicles
+            </h2>
+
+            <div className="space-y-3">
+              {vehicles.map((v) => (
+                <div
+                  key={v.id}
+                  className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
+                    activeVehicleId === v.id
+                      ? 'bg-cyan-500/5 border-cyan-500/40 shadow-md shadow-cyan-500/5'
+                      : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2.5 rounded-xl ${activeVehicleId === v.id ? 'bg-cyan-500 text-white' : 'bg-slate-900 text-slate-400'}`}>
+                      <Icon name="Car" className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-slate-200">{v.name}</h4>
+                        {activeVehicleId === v.id && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 font-bold uppercase tracking-wider">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Initial Odometer: <span className="text-slate-200 font-medium">{Number(v.initialOdometer).toLocaleString()} mi</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setActiveVehicleId(v.id)}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                        activeVehicleId === v.id
+                          ? 'bg-cyan-500/20 text-cyan-400 cursor-default'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {activeVehicleId === v.id ? 'Selected' : 'Select'}
+                    </button>
+                    <button
+                      onClick={() => startEdit(v)}
+                      className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-cyan-400 transition-colors"
+                      title="Update Vehicle"
+                    >
+                      <Icon name="Edit3" className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(v.id)}
+                      className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-red-400 transition-colors"
+                      title="Delete Vehicle"
+                    >
+                      <Icon name="Trash2" className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
